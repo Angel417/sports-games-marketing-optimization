@@ -1,0 +1,477 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+LOAD IN LIBRARIES
+```{r}
+install.packages("modelsummary")
+install.packages("jtools")
+install.packages("sjPlot")
+install.packages("SciViews")
+
+# Load in libraries
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(skimr)
+library(psych)
+library(Hmisc)
+library(corrplot)
+library(naniar)
+library(GGally)
+library(janitor)
+library(modelsummary)
+library(jtools)
+library(sjPlot)
+library(SciViews)
+
+```
+
+LOAD IN DATA SET(S)
+```{r}
+df <- read_csv("dataset.csv")
+df_sales <- read_csv("sales_dataset.csv")
+
+df %>% head()
+df_sales %>% head()
+
+```
+
+PRELIM DATA CHECK
+```{r}
+df %>%
+  gg_miss_var()
+
+# Delete irrelevant variables
+df %>% select(-EAtrading_volume, -EAprice) -> df
+
+```
+
+
+EDA
+
+
+DESCRIPTIVES
+```{r}
+# Summary statistics
+
+## DVs: news_volume, mean_sentiment_comments
+df %>%
+  select(news_volume, mean_sentiment_comments) %>%
+  psych::describe()
+
+## owned_tweets_about_games, paid_volume, press_release_volume
+df %>%
+  select(owned_tweets_about_games, paid_volume, press_release_volume) %>%
+  psych::describe()
+
+## trailer, launch, teaser, convention, expansions_dlc
+df %>%
+  select(trailer, launch, teaser, convention, expansions_dlc) %>%
+  psych::describe()
+
+```
+ 
+CREATE NEW VARIABLES - PRE, DURING, POST LAUNCH PERIODS (CATEGORIES)
+```{r}
+# Select subset of data from 3 months pre-launch until 3 months post-launch (2018)
+## May 10 2018 - December 28 2018
+df %>%
+  filter(
+    row_number() >= 495 & row_number() <= 727
+  ) -> df_2018
+
+# Select subset of data from 3 months pre-launch until 3 months post-launch (2017)
+## May 25 - December 29 2017
+df %>%
+  filter(
+    row_number() >= 145 & row_number() <= 363
+  ) -> df_2017
+
+
+# Create new data frame for games across both years
+df %>%
+  filter(
+    row_number() >= 145 & row_number() <= 727
+  ) -> df_combo
+
+
+
+# 2018 new date categories
+## Pre-launch, during launch, post-launch
+df_2018 %>%
+  mutate(
+    launch_period =
+      case_when(
+        (date >= "2018-05-10" & date <= "2018-08-09") ~ "Pre-Launch",
+        (date >= "2018-08-10" & date <= "2018-09-28") ~ "During Launch",
+        (date >= "2018-09-29" & date <= "2018-12-28") ~ "Post-Launch")
+  ) -> df_2018
+
+# 2017 new date categories
+## Pre-launch, during launch, post-launch
+df_2017 %>%
+  mutate(
+    launch_period =
+      case_when(
+        (date >= "2017-05-25" & date <= "2017-08-24") ~ "Pre-Launch",
+        (date >= "2017-08-25" & date <= "2017-09-29") ~ "During Launch",
+        (date >= "2017-09-30" & date <= "2017-12-29") ~ "Post-Launch")
+  ) -> df_2017
+
+
+# df_combo launch periods
+## Pre-launch, during launch, post-launch - 2018
+df_combo %>%
+  mutate(
+    launch_period =
+      case_when(
+        (date >= "2017-05-25" & date <= "2017-08-24") ~ "Pre-Launch",
+        (date >= "2017-08-25" & date <= "2017-09-29") ~ "During Launch",
+        (date >= "2017-09-30" & date <= "2017-12-29") ~ "Post-Launch",
+        (date >= "2018-05-10" & date <= "2018-08-09") ~ "Pre-Launch",
+        (date >= "2018-08-10" & date <= "2018-09-28") ~ "During Launch",
+        (date >= "2018-09-29" & date <= "2018-12-28") ~ "Post-Launch")
+  ) -> df_combo
+
+```
+
+DISTRIBUTIONS - 2018
+```{r}
+# news_volume, mean_sentiment_comments (grouped by launch period)
+df_2018 %>%
+  ggplot() + geom_histogram(aes(news_volume), fill = "#69b3a2", bins = 20) +
+  facet_wrap(launch_period~., scales = "free") +
+  theme_minimal()
+
+df_2018 %>%
+  ggplot() + geom_histogram(aes(mean_sentiment_comments), fill = "#69b3a2", bins = 20) + 
+  facet_wrap(launch_period~., scales = "free") +
+  theme_minimal()
+
+
+# Bar chart - positive comments across each period
+ggplot(df_2018, aes(x = df_2018$launch_period, y = df_2018$positive_comments)) + geom_bar(stat = "identity", fill = "#69b3a2") +
+  labs(
+    x = "Launch Period",
+    y = "Number of Positive Comments") +
+  theme_minimal() + coord_flip()
+
+# Bar chart - negative comments across each period
+ggplot(df_2018, aes(x = df_2018$launch_period, y = df_2018$negative_comments)) + geom_bar(stat = "identity", fill = "#69b3a2") +
+  labs(
+    x = "Launch Period",
+    y = "Number of Negative Comments") +
+  theme_minimal() + coord_flip()
+
+
+# owned_tweets_about_games, paid_volume, press_release_volume
+df_2018 %>%
+  select(
+    owned_tweets_about_games,
+    paid_volume,
+    press_release_volume,
+    launch_period) %>%
+  group_by(launch_period) %>%
+  summarise_all(sum, na.rm=T) %>%
+  pivot_longer(-launch_period, names_to = "variable", values_to = "volume") %>%
+  ggplot(aes(x = variable, y = volume)) + geom_bar(stat = "identity", fill = "#69b3a2") + coord_flip() + 
+  facet_wrap(launch_period~., scales = "free") + theme_minimal()
+
+```
+
+DISTRIBUTIONS - 2017
+```{r}
+# news_volume, mean_sentiment_comments (grouped by launch period)
+df_2017 %>%
+  ggplot() + geom_histogram(aes(news_volume), fill = "#DD6A60", bins = 20) +
+  facet_wrap(launch_period~., scales = "free") +
+  theme_minimal()
+
+df_2017 %>%
+  ggplot() + geom_histogram(aes(mean_sentiment_comments), fill = "#DD6A60", bins = 25) + 
+  facet_wrap(launch_period~., scales = "free") +
+  theme_minimal()
+
+# Bar chart - positive comments across each period
+ggplot(df_2017, aes(x = df_2017$launch_period, y = df_2017$positive_comments)) + geom_bar(stat = "identity", fill = "#DD6A60") +
+  labs(
+    x = "Launch Period - 2017",
+    y = "Number of Positive Comments") +
+  theme_minimal() + coord_flip()
+
+ggplot(df_2017, aes(x = df_2017$launch_period, y = df_2017$negative_comments)) + geom_bar(stat = "identity", fill = "#DD6A60") +
+  labs(
+    x = "Launch Period - 2017",
+    y = "Number of Negative Comments") +
+  theme_minimal() + coord_flip()
+
+
+# owned_tweets_about_games, paid_volume, press_release_volume
+df_2017 %>%
+  select(
+    owned_tweets_about_games,
+    paid_volume,
+    press_release_volume,
+    launch_period) %>%
+  group_by(launch_period) %>%
+  summarise_all(sum, na.rm=T) %>%
+  pivot_longer(-launch_period, names_to = "variable", values_to = "volume") %>%
+  ggplot(aes(x = variable, y = volume)) + geom_bar(stat = "identity", fill = "#DD6A60") + coord_flip() + 
+  facet_wrap(launch_period~., scales = "free") + theme_minimal()
+```
+
+BAR CHARTS - OWNED & PAID TWEETS VOLUME BY YEAR
+```{r}
+# Temporarily rename variable names for bar chart output
+df_2017 %>% rename(
+  "Owned" = "owned_tweets_about_games",
+  "Paid" = "paid_volume") -> df_2017
+
+df_2018 %>% rename(
+  "Owned" = "owned_tweets_about_games",
+  "Paid" = "paid_volume") -> df_2018
+
+
+# Bar chart: sums of owned tweets and paid tweets for 2017
+df_2017 %>%
+  select(
+    Owned,
+    Paid) %>%
+  summarise_all(sum, na.rm = T) %>%
+  pivot_longer(everything(), names_to = "Type", values_to = "Volume") %>%
+  ggplot(aes(x = Type, y = Volume)) +
+  geom_bar(stat = "identity", fill = "#73B9D5") +
+  theme_minimal(base_size = 20)
+
+
+# Bar chart: sums of owned tweets and paid tweets for 2018
+df_2018 %>%
+  select(
+    Owned,
+    Paid) %>%
+  summarise_all(sum, na.rm = T) %>%
+  pivot_longer(everything(), names_to = "Type", values_to = "Volume") %>%
+  ggplot(aes(x = Type, y = Volume)) + geom_bar(stat = "identity", fill = "#3B3F40") +
+  theme_minimal(base_size = 20)
+
+
+# Change back variable names
+df_2017 %>% rename(
+  "owned_tweets_about_games" = "Owned",
+  "paid_volume" = "Paid") -> df_2017
+
+df_2018 %>% rename(
+  "owned_tweets_about_games" = "Owned",
+  "paid_volume" = "Paid") -> df_2018
+
+
+
+```
+
+CORRELATIONS CHECK - SPORTS GAMES 2018
+```{r}
+# Matrix 
+df_2018 %>%
+  select(
+    news_volume,
+    owned_tweets_about_games,
+    owned_retweets_about_games,
+    owned_favorites_about_games,
+    paid_volume,
+    paid_retweets,
+    paid_favorites,
+    earned_volume_comments
+  ) %>%
+  as.matrix %>% 
+  rcorr() -> corr
+
+corrplot(corr$r, method = "shade", order = "alphabet", type = "lower", addCoef.col = TRUE, tl.srt = 45, tl.pos = "ld")
+```
+
+CORRELATIONS CHECK - SPORTS GAMES 2017
+```{r}
+df_2017 %>%
+  select(
+    news_volume,
+    owned_tweets_about_games,
+    owned_retweets_about_games,
+    owned_favorites_about_games,
+    paid_volume,
+    paid_retweets,
+    paid_favorites,
+    earned_volume_comments
+  ) %>%
+  as.matrix %>% 
+  rcorr() -> corr2
+
+corrplot(corr2$r, method = "shade", order = "alphabet", type = "lower", addCoef.col = TRUE, tl.srt = 45, tl.pos = "ld")
+```
+
+CORRELATIONS CHECK - KEY VARIABLES FULL DATA SET
+```{r}
+# Matrix 
+df %>% select(-`...1`, -earnings) -> df
+
+df %>%
+  select(
+    owned_tweets_about_games,
+    owned_retweets_about_games,
+    owned_favorites_about_games,
+    paid_volume,
+    paid_retweets,
+    paid_favorites,
+    paid_replies,
+    earned_volume_comments,
+    ups_comments,
+    negative_comments,
+    neutral_comments,
+    positive_comments,
+    mean_sentiment_comments,
+    news_volume,
+    press_release_volume,
+    week) %>%
+  as.matrix %>% 
+  rcorr() -> corr_df
+
+corrplot(corr_df$r, method = "shade", order = "alphabet", type = "lower", addCoef.col = TRUE, tl.srt = 45, tl.pos = "ld")
+```
+
+WRITE DATA FRAMES TO CSV FILES
+```{r}
+# Reformat data frames and write to CSV files
+df_2017 %>% select(-`...1`) -> df_2017
+df_2018 %>% select(-`...1`) -> df_2018
+
+write.csv(df_2017, "/Users/angelchang/Desktop/VU/Master/P4/Advertising/Master Case/sports_2017.csv", row.names=FALSE)
+
+write.csv(df_2018, "/Users/angelchang/Desktop/VU/Master/P4/Advertising/Master Case/sports_2018.csv", row.names=FALSE)
+```
+
+
+
+REGRESSIONS
+
+
+DV - EARNED VOLUME COMMENTS (2017 & 2018)
+```{r}
+# 2017 
+## Pre-Launch
+df_2017 %>%
+  filter(launch_period == "Pre-Launch") %>%
+  lm(log1p(earned_volume_comments) ~ lag(log1p(paid_volume)) * lag(log1p(owned_tweets_about_games)),
+     data = .) %>% #-> model_buzz
+  summ(digits = 3)
+
+
+# 2017 
+## Post-Launch
+df_2017 %>%
+  filter(launch_period == "Post-Launch") %>%
+  lm(log1p(earned_volume_comments) ~ lag(log1p(paid_volume)) * lag(log1p(owned_tweets_about_games)),
+     data = .) %>%
+  summ(digits = 3)
+
+
+# 2018 
+## Pre-launch
+df_2018 %>%
+  filter(launch_period == "Pre-Launch") %>%
+  lm(log1p(earned_volume_comments) ~ lag(log1p(paid_volume)) * lag(log1p(owned_tweets_about_games)),
+     data = .) %>% # -> model_buzz2
+  summ(digits = 3)
+
+# 2018 
+## Post-launch
+df_2018 %>%
+  filter(launch_period == "Post-Launch") %>%
+  lm(log1p(earned_volume_comments) ~ lag(log1p(paid_volume)) * lag(log1p(owned_tweets_about_games)),
+     data = .) %>%
+  summ(digits = 3)
+```
+
+VISUALIZING REGRESSION - PRE-LAUNCH 2017 BUZZ
+```{r}
+# IV - owned tweets
+plot_model(model_buzz, type = "pred", terms = "owned_tweets_about_games") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+
+# IV - paid volume
+plot_model(model_buzz, type = "pred", terms = "paid_volume") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+```
+
+VISUALIZING REGRESSION - PRE-LAUNCH 2018 BUZZ
+```{r}
+# IV - owned tweets
+plot_model(model_buzz2, type = "pred", terms = "owned_tweets_about_games") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+
+# IV - paid volume
+plot_model(model_buzz2, type = "pred", terms = "paid_volume") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+
+  
+```
+
+TRADING PRICE, TRADING VOLUME
+```{r}
+# Combine 2018 and 2018 sports games data
+all_df <- rbind(df_2017, df_2018)
+
+
+# Trading price
+model1 <- lm(EAprice ~ lag(launch_period), data = all_df)
+
+all_df %>%
+  lm(EAprice ~ lag(launch_period), data = .) %>%
+  summ(digits = 3)
+
+# Plot regression 1 visual
+plot_model(model1, type = "pred", terms = "launch_period") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+
+# Trading volume
+model2 <- lm(log(EAtrading_volume) ~ lag(launch_period), data = all_df)
+
+# Plot regression 2 visual
+plot_model(model2, type = "pred", terms = "launch_period") +
+  theme_minimal(base_size = 18) +
+  labs(
+    title = "",
+    x = "",
+    y =""
+  )
+
+
+  
+```
+
+
+
